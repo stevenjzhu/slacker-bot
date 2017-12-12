@@ -27,7 +27,7 @@ async function get_history(guild) {
         user_messages[username] = [];
       }
       // Command handler
-      if message.content[0] == '!' return;
+      if (message.content[0] === '!') return;
       sentences = message.content.split('.');
       for (sentence of sentences) {
         sanitized = sentence.replace(/[^a-z\s]/gi, '').trim()
@@ -66,7 +66,7 @@ function generate_chain(messages) {
       } else {
         great_chain[message[i]].children[message[i+1]] += 1;
       }
-      great_chain[message[i+1]].parent += 1;
+      // great_chain[message[i+1]].parent += 1;
       great_chain[message[i]].branches += 1;
       if (i == 0) {
         if (!chain_start[message[i]])
@@ -75,7 +75,7 @@ function generate_chain(messages) {
         chain_start.branches += 1;
       }
       if (i == message.length-2)
-        great_chain[message[i+1]].end += 1;
+        great_chain[message[i+1]].children['.'] += 1;
     }
   }
   // console.log(chain_start);
@@ -85,8 +85,8 @@ function initialize_node(word) {
   great_chain[word] = {};
   great_chain[word].children = [];
   great_chain[word].branches = 0;
-  great_chain[word].parent = 0;
-  great_chain[word].end = 0;
+  // great_chain[word].parent = 0;
+  // great_chain[word].end = 0;
 }
 
 function speak(length) {
@@ -103,7 +103,8 @@ function speak(length) {
   if (output.length > 0)
     return output;
   else
-    return 'Sorry, I don\'t know enough words :(';
+    return speak(length);
+    // return 'Sorry, I don\'t know enough words :(';
 }
 
 function next_word(word, length) {

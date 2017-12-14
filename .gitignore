@@ -1,4 +1,6 @@
 package-lock.json
 auth.json
+*_cache.json
+test.js
 emoji/
 node_modules/

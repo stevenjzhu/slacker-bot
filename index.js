@@ -33,7 +33,7 @@ client.on('ready', () => {
       live_message();
     } else {
       test_channel.send('Slacker-bot online.');
-      parrot.get_history(guild).then(live_message);
+      parrot.initialize_chain(guild);
       blaze_it();
       sleep_warning();
     }
@@ -64,7 +64,7 @@ function get_time_until(hour, minute, second) {
 
 function sleep_warning() {
   client.setTimeout(() => {
-    main_channel.send('Slacker-bot sleeping in 60 seconds.');
+    test_channel.send('Slacker-bot sleeping in 60 seconds.');
     client.setTimeout(sleep_warning, 10000);
   }, get_time_until(1, 59, 0));
 }
@@ -72,6 +72,9 @@ function sleep_warning() {
 function blaze_it() {
   client.setTimeout(() => {
     main_channel.send('420BLAZEIT');
+    client.guilds.map((guild) => {
+      update_chain(guild);
+    });
     client.setTimeout(blaze_it, 10000);
   }, get_time_until(16, 20, 0));
 }
@@ -88,28 +91,31 @@ function format_time(delay, event) {
 client.on('message', msg => {
   if (msg.author.bot) return;
   if (!process.env.PORT) return;
-  
-  if (msg.content === 'ping') {
-    msg.reply('pong!');
-  }
-  if (msg.content === '!time') {
-    let time = moment.tz(time_zone);
-    msg.channel.send(`The current time is ${time.format('YYYY-MM-DD hh:mm:ss')} CST`);
-  }
-  if (msg.content === '!sleep_time') {
-    msg.channel.send(format_time(get_time_until(2,0,0), 'sleep'));
-  }
-  if (msg.content === '!blaze_time') {
-    msg.channel.send(format_time(get_time_until(16,20,0), '420'));
-  }
-  if (msg.content === '!speak') {
-    msg.channel.send(parrot.speak());
-  }
-  if (msg.content.toLowerCase() === 'good bot') {
-    msg.reply('thanks!');
-  }
-  if (msg.content.toLowerCase() === 'bad bot') {
-    msg.reply('sorry :(');
+  switch (msg.content.toLowerCase()) {
+    case 'ping':
+      msg.reply('pong!');
+      break;
+    case '!time':
+      let time = moment.tz(time_zone);
+      msg.channel.send(
+        `The current time is ${time.format('YYYY-MM-DD hh:mm:ss')} CST`);
+      break;
+    case '!sleep_time':
+      msg.channel.send(format_time(get_time_until(2,0,0), 'sleep'));
+      break;
+    case '!blaze_time':
+      msg.channel.send(format_time(get_time_until(16,20,0), '420'));
+      break;
+    case '!speak':
+      msg.channel.send(parrot.speak());
+      break;
+    case 'good bot':
+      msg.reply('thanks!');
+      break;
+    case 'bad bot':
+      msg.reply('sorry :(');
+      break;
+    case 'default':
   }
   // Echo test
   // if (!msg.author.bot &&

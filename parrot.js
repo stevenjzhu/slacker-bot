@@ -2,23 +2,98 @@
 // Steven Zhu
 
 const fs = require('fs');
+const filename = '_cache.json';
+const MAX_LENGTH = 20;
+const RANGE = 100;
+// Speical tokens
+const START = '^';
+const END = ['.','?','!'];
+const DEFAULT_END = '.';
+const NUM = '#';
 
-let chain_start = {};
-chain_start.children = [];
-chain_start.branches = 0;
-let great_chain = {};
+let great_chain;
+let last_keys;
+let output;
 
-let output = '';
+function initialize_chain(guild) {
+  fs.readFile(guild.id + filename, (err, data) => {
+    if (err == null) {
+      console.log('Loading cache...');
+      res = JSON.parse(data);
+      great_chain = res.chain;
+      last_keys = res.keys;
+    }
+    else {
+      console.log('No cache found.');
+      great_chain = {};
+      last_keys = {};
+    }
+
+    update_chain(guild);
+  })
+}
+
+async function update_chain(guild) {
+  if (!great_chain[START])
+    initialize_node(START);
+  for (end of END) {
+    if (!great_chain[end])
+      initialize_node(end);
+  }
+  if (!great_chain[NUM])
+    initialize_node(NUM);
+  let all_messages = await get_history(guild);
+
+  console.log(`Retrieved ${all_messages.length} messages.`);
+  generate_chain(all_messages);
+
+  console.log('Saving chain...');
+  let file = {
+    'chain': great_chain,
+    'keys': last_keys
+  }
+  fs.writeFile(guild.id + filename, JSON.stringify(file),
+  (err) => {
+    if (err) throw err;
+  })
+  console.log('Chain saved.');
+}
+
+function initialize_node(word) {
+  great_chain[word] = {};
+  great_chain[word].children = {};
+  great_chain[word].branches = 0;
+}
 
 async function get_history(guild) {
   let user_messages = {};
   let all_messages = [];
+  let text_channels = guild.channels.filter(channel => channel.type === 'text');
 
-  const channels_histories = await Promise.all(guild.channels
-        .filter(channel => channel.fetchMessages)
-        .map(channel => channel.fetchMessages()));
+  const channels_histories = await Promise.all(
+    text_channels.map((channel) => {
+      let key;
+      if (last_keys[channel.id])
+        key = last_keys[channel.id];
+      else
+        key = channel.createdTimestamp;
+
+      last_keys[channel.id] = channel.lastMessageID;
+      return get_old_messages(channel, key);
+    })
+  );
+
+  async function get_old_messages(channel, firstKey) {
+    let res = await channel.fetchMessages({limit:100, after:firstKey});
+    if (res.size === 100)
+      res = res.concat(
+        await get_old_messages(channel, res.firstKey())
+      );
+    return res;
+  }
 
   channels_histories.map(channel_history => {
+    // console.log(channel_history.size);
     channel_history.map(message => {
       const username = message.author.username;
       if (message.author.bot)
@@ -27,11 +102,24 @@ async function get_history(guild) {
         user_messages[username] = [];
       }
       // Command handler
-      if (message.content[0] === '!') return;
-      sentences = message.content.split('.');
+      if (message.content[0] === '!' ||
+      message.content === 'ping' ||
+      message.content.toLowerCase() === 'good bot' ||
+      message.content.toLowerCase() === 'bad bot') return;
+
+      // regex to strip urls, credit to regextester.com
+      // https://www.regextester.com/20
+      let pattern = new RegExp('((http[s]?|ftp):\\/)?\\/?([^:\\/\\s]+)' +
+      '((\\/\\w+)*\\/)([\\w\\-\\.]+[^#?\\s]+)(.*)?(#[\\w\\-]+)?', 'gi');
+
+      let sentences = message.content.replace(pattern, '')
+        .replace(/:\w+:|:[^ ]+/g, '')
+        .replace(/([,;:.!?])/g, ' $1')
+        .split(/([^.!?]+[.!?])/g);
       for (sentence of sentences) {
-        sanitized = sentence.replace(/[^a-z\s]/gi, '').trim()
-        .toLowerCase().split(' ');
+        if (sentence === '') continue;
+        let sanitized = sentence.replace(/[^0-9a-z',:;.!?]+/gi, ' ')
+        .replace(/\s+/g, ' ').trim().toLowerCase().split(' ');
         if (sanitized.length > 1)
           user_messages[username].push(sanitized);
       }
@@ -39,85 +127,103 @@ async function get_history(guild) {
   });
 
   for (const user in user_messages) {
-    // console.log(user);
     for (const message of user_messages[user]) {
-      // console.log(message);
       all_messages.push(message);
     }
   }
 
-  generate_chain(all_messages);
-  // for (const message of all_messages) {
-  //   console.log(message);
-  // };
+  return all_messages;
 }
 
 function generate_chain(messages) {
+  console.log('Generating chain...');
+  let current_word;
+  let next_word;
   for (message of messages) {
-    // console.log(message);
+    if (isNaN(message[0]))
+      next_word = message[0];
+    else
+      next_word = NUM;
+
+    if (great_chain[START].children[next_word])
+      great_chain[START].children[next_word] += 1;
+    else
+      great_chain[START].children[next_word] = 1;
+    great_chain[START].branches += 1;
+
     for (i = 0 ; i < message.length-1; i++) {
-      if (!great_chain[message[i]]) {
-        initialize_node(message[i])
-      }
-      if (!great_chain[message[i+1]])
-        initialize_node(message[i+1]);
-      if (!great_chain[message[i]].children[message[i+1]]) {
-        great_chain[message[i]].children[message[i+1]] = 1;
-      } else {
-        great_chain[message[i]].children[message[i+1]] += 1;
-      }
-      // great_chain[message[i+1]].parent += 1;
-      great_chain[message[i]].branches += 1;
-      if (i == 0) {
-        if (!chain_start[message[i]])
-          chain_start.children[message[i]] = 0;
-        chain_start.children[message[i]] += 1;
-        chain_start.branches += 1;
-      }
-      if (i == message.length-2)
-        great_chain[message[i+1]].children['.'] += 1;
+      // Check if word is number
+      if (isNaN(message[i]))
+        current_word = message[i];
+      else
+        current_word = NUM;
+      if (isNaN(message[i+1]))
+        next_word = message[i+1];
+      else
+        next_word = NUM;
+
+      if (!great_chain[current_word])
+        initialize_node(current_word)
+      if (!great_chain[next_word])
+        initialize_node(next_word);
+
+      if (great_chain[current_word].children[next_word])
+        great_chain[current_word].children[next_word] += 1;
+      else
+        great_chain[current_word].children[next_word] = 1;
+
+      great_chain[current_word].branches += 1;
+
+    }
+
+    if (!END.includes(next_word)) {
+      if (great_chain[next_word].children[DEFAULT_END])
+        great_chain[next_word].children[DEFAULT_END] += 1;
+      else
+        great_chain[next_word].children[DEFAULT_END] = 1;
+      great_chain[next_word].branches += 1;
     }
   }
-  // console.log(chain_start);
+  console.log('Chain updated.');
 }
 
-function initialize_node(word) {
-  great_chain[word] = {};
-  great_chain[word].children = [];
-  great_chain[word].branches = 0;
-  // great_chain[word].parent = 0;
-  // great_chain[word].end = 0;
-}
-
-function speak(length) {
+function speak() {
   output = '';
-  let num = Math.random();
-  for (child in chain_start.children) {
-    num -= chain_start.children[child]/chain_start.branches;
-    if (num < 0) {
-      output = output.concat(child + ' ');
-      next_word(child, length);
-      break;
-    }
-  }
-  if (output.length > 0)
+  next_word(START, 0);
+  if (output.length > 1)
     return output;
   else
     return speak(length);
-    // return 'Sorry, I don\'t know enough words :(';
 }
 
 function next_word(word, length) {
-  if (length === 0 || great_chain[word].branches === 0)
+  if (length === MAX_LENGTH || great_chain[word].branches === 0)
     return;
+
   let num = Math.random();
+  let branches = great_chain[word].branches;
   for (child in great_chain[word].children) {
-    num -= great_chain[word].children[child]/great_chain[word].branches;
+    num -= great_chain[word].children[child] / branches;
     if (num < 0) {
-      output = output.concat(child + ' ');
-      return next_word(child, length-1);
+      if (!END.includes(child))
+        output = output.concat(' ');
+
+    switch(child) {
+      case 'i':
+        output = output.concat('I');
+        break;
+      case '#':
+        output = output.concat(Math.round(Math.random() * RANGE));
+        break;
+      default:
+        output = output.concat(child);
     }
+    return next_word(child, length+1);
   }
+  }
+  console.log(num);
+  output = output.concat(' FIXME!');
+  return;
 }
 
-module.exports = {get_history, speak};
+module.exports = {initialize_chain, update_chain, speak};

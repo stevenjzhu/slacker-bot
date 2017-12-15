@@ -73,7 +73,7 @@ function blaze_it() {
   client.setTimeout(() => {
     main_channel.send('420BLAZEIT');
     client.guilds.map((guild) => {
-      update_chain(guild);
+      parrot.update_chain(guild);
     });
     client.setTimeout(blaze_it, 10000);
   }, get_time_until(16, 20, 0));

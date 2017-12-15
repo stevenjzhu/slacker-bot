@@ -7,6 +7,7 @@ const MAX_LENGTH = 20;
 const RANGE = 100;
 // Speical tokens
 const START = '^';
+const MID = [',',';',':'];
 const END = ['.','?','!'];
 const DEFAULT_END = '.';
 const NUM = '#';
@@ -103,7 +104,7 @@ async function get_history(guild) {
       }
       // Command handler
       if (message.content[0] === '!' ||
-      message.content === 'ping' ||
+      message.content.toLowerCase() === 'ping' ||
       message.content.toLowerCase() === 'good bot' ||
       message.content.toLowerCase() === 'bad bot') return;
 
@@ -113,14 +114,22 @@ async function get_history(guild) {
       '((\\/\\w+)*\\/)([\\w\\-\\.]+[^#?\\s]+)(.*)?(#[\\w\\-]+)?', 'gi');
 
       let sentences = message.content.replace(pattern, '')
-        .replace(/:\w+:|:[^ ]+/g, '')
-        .replace(/([,;:.!?])/g, ' $1')
+        // strips emoticons
+        .replace(/:\w+:|:[^\s]+|\s\w:/g, '')
+        // pad spaces for division
+        .replace(/([,;:.!?])/g, ' $1 ')
+        // Handles Chrisitan's apostrophes
+        .replace('’', '\'')
+        // strips equations
+        .replace(/([^a-z-'\s]+[a-z-']+|[a-z']+[^a-z-'\s]+)\S*/gi, '')
+        // split based on ending tokens
         .split(/([^.!?]+[.!?])/g);
       for (sentence of sentences) {
         if (sentence === '') continue;
-        let sanitized = sentence.replace(/[^0-9a-z',:;.!?]+/gi, ' ')
+        let sanitized = sentence.replace(/[^\w-',:;.!?]+/gi, ' ')
         .replace(/\s+/g, ' ').trim().toLowerCase().split(' ');
-        if (sanitized.length > 1)
+        if (sanitized.length > 1 &&
+          !END.includes(sanitized[1]))
           user_messages[username].push(sanitized);
       }
     });
@@ -176,7 +185,7 @@ function generate_chain(messages) {
 
     }
 
-    if (!END.includes(next_word)) {
+    if (!END.includes(next_word) && !MID.includes(next_word)) {
       if (great_chain[next_word].children[DEFAULT_END])
         great_chain[next_word].children[DEFAULT_END] += 1;
       else

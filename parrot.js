@@ -2,7 +2,9 @@
 // Steven Zhu
 
 const fs = require('fs');
-const filename = '_cache.json';
+
+const msg_filename = '_msg_cache.json';
+const filename = '_chain_cache.json';
 const MAX_LENGTH = 20;
 const RANGE = 100;
 // Speical tokens
@@ -12,26 +14,49 @@ const END = ['.','?','!'];
 const DEFAULT_END = '.';
 const NUM = '#';
 
+let raw_messages;
+let processed_messages;
 let great_chain;
 let last_keys;
 let output;
 
 function initialize_chain(guild) {
-  fs.readFile(guild.id + filename, (err, data) => {
+  // read saved messages
+  fs.readFile(guild.id + msg_filename, (err, data) => {
     if (err == null) {
-      console.log('Loading cache...');
+      console.log('Loading msg cache...');
       res = JSON.parse(data);
-      great_chain = res.chain;
+      raw_messages = res.msgs;
+      great_chain = {};
       last_keys = res.keys;
     }
     else {
       console.log('No cache found.');
+      raw_messages = {};
       great_chain = {};
       last_keys = {};
     }
+    processed_messages = [];
 
     update_chain(guild);
   })
+
+  // Read saved chain
+  // fs.readFile(guild.id + filename, (err, data) => {
+  //   if (err == null) {
+  //     console.log('Loading chain cache...');
+  //     res = JSON.parse(data);
+  //     great_chain = res.chain;
+  //     last_keys = res.keys;
+  //   }
+  //   else {
+  //     console.log('No cache found.');
+  //     great_chain = {};
+  //     last_keys = {};
+  //   }
+  //
+  //   update_chain(guild);
+  // })
 }
 
 async function update_chain(guild) {
@@ -43,21 +68,40 @@ async function update_chain(guild) {
   }
   if (!great_chain[NUM])
     initialize_node(NUM);
-  let all_messages = await get_history(guild);
-
-  console.log(`Retrieved ${all_messages.length} messages.`);
-  generate_chain(all_messages);
-
-  console.log('Saving chain...');
+  await update_history(guild);
+  console.log('Saving raw msgs...');
   let file = {
-    'chain': great_chain,
+    'msgs': raw_messages,
     'keys': last_keys
   }
-  fs.writeFile(guild.id + filename, JSON.stringify(file),
+  fs.writeFile(guild.id + msg_filename, JSON.stringify(file),
   (err) => {
     if (err) throw err;
   })
-  console.log('Chain saved.');
+  console.log('Raw msgs saved.');
+
+  // console.log(`Currently learning from ${raw_messages.length} raw messages.`);
+  console.log('Processing messages...');
+  process_messages();
+  console.log('Processing finished.');
+  // console.log(raw_messages);
+  // console.log(processed_messages);
+
+  console.log('Generating chain...');
+  for (user in processed_messages)
+    generate_chain(processed_messages[user]);
+  console.log('Chain updated.');
+
+  // console.log('Saving chain...');
+  // let file = {
+  //   'chain': great_chain,
+  //   'keys': last_keys
+  // }
+  // fs.writeFile(guild.id + filename, JSON.stringify(file),
+  // (err) => {
+  //   if (err) throw err;
+  // })
+  // console.log('Chain saved.');
 }
 
 function initialize_node(word) {
@@ -66,12 +110,11 @@ function initialize_node(word) {
   great_chain[word].branches = 0;
 }
 
-async function get_history(guild) {
-  let user_messages = {};
-  let all_messages = [];
+async function update_history(guild) {
+  console.log("Updating log...");
   let text_channels = guild.channels.filter(channel => channel.type === 'text');
 
-  const channels_histories = await Promise.all(
+  await Promise.all(
     text_channels.map((channel) => {
       let key;
       if (last_keys[channel.id])
@@ -84,68 +127,65 @@ async function get_history(guild) {
     })
   );
 
+  console.log("Log updated.");
+
   async function get_old_messages(channel, firstKey) {
     let res = await channel.fetchMessages({limit:100, after:firstKey});
+    populate_raw_message(res);
     if (res.size === 100)
-      res = res.concat(
-        await get_old_messages(channel, res.firstKey())
-      );
-    return res;
+      await get_old_messages(channel, res.firstKey());
   }
+}
 
-  channels_histories.map(channel_history => {
-    // console.log(channel_history.size);
-    channel_history.map(message => {
-      const username = message.author.username;
-      if (message.author.bot)
-        return;
-      if (!user_messages[username]) {
-        user_messages[username] = [];
-      }
-      // Command handler
-      if (message.content[0] === '!' ||
-      message.content.toLowerCase() === 'ping' ||
-      message.content.toLowerCase() === 'good bot' ||
-      message.content.toLowerCase() === 'bad bot') return;
+const blacklist = ['ping', 'good bot', 'bad bot'];
+function populate_raw_message(messages) {
+  messages.map((message) => {
+    // Command handler
+    if ((message.author.bot || message.content[0] === '!' ||
+    blacklist.includes(message.content.toLowerCase()))) return;
 
+    const username = message.author.username;
+    if (!raw_messages[username]) {
+      raw_messages[username] = [];
+    }
+    raw_messages[username].push(message.content);
+  });
+}
+
+function process_messages() {
+  for (user in raw_messages) {
+    processed_messages[user] = [];
+    for (message of raw_messages[user]) {
       // regex to strip urls, credit to regextester.com
       // https://www.regextester.com/20
       let pattern = new RegExp('((http[s]?|ftp):\\/)?\\/?([^:\\/\\s]+)' +
       '((\\/\\w+)*\\/)([\\w\\-\\.]+[^#?\\s]+)(.*)?(#[\\w\\-]+)?', 'gi');
 
-      let sentences = message.content.replace(pattern, '')
-        // strips emoticons
-        .replace(/:\w+:|:[^\s]+|\s\w:/g, '')
+      let sentences = message.replace(pattern, '')
+        // strips emotes
+        .replace(/:\w+:|[:;][^\s]+|\s\w[:;]/g, '')
         // pad spaces for division
-        .replace(/([,;:.!?])/g, ' $1 ')
+        .replace(/(["*_,;:.!?])/g, ' $1 ')
         // Handles Chrisitan's apostrophes
         .replace('’', '\'')
-        // strips equations
-        .replace(/([^a-z-'\s]+[a-z-']+|[a-z']+[^a-z-'\s]+)\S*/gi, '')
+        // strips anything not a word
+        .replace(/([^a-z-'\s]+[a-z-']+|[a-z-']+[^a-z-'\s]+)\S*/gi, '')
         // split based on ending tokens
         .split(/([^.!?]+[.!?])/g);
+
       for (sentence of sentences) {
         if (sentence === '') continue;
         let sanitized = sentence.replace(/[^\w-',:;.!?]+/gi, ' ')
         .replace(/\s+/g, ' ').trim().toLowerCase().split(' ');
         if (sanitized.length > 1 &&
           !END.includes(sanitized[1]))
-          user_messages[username].push(sanitized);
+          processed_messages[user].push(sanitized);
       }
-    });
-  });
-
-  for (const user in user_messages) {
-    for (const message of user_messages[user]) {
-      all_messages.push(message);
     }
   }
-
-  return all_messages;
 }
 
 function generate_chain(messages) {
-  console.log('Generating chain...');
   let current_word;
   let next_word;
   for (message of messages) {
@@ -193,7 +233,6 @@ function generate_chain(messages) {
       great_chain[next_word].branches += 1;
     }
   }
-  console.log('Chain updated.');
 }
 
 function speak() {

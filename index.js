@@ -30,9 +30,9 @@ client.on('ready', () => {
     test_channel = guild.channels.find('id', test_channel_id);
     // console.log(test_channel.name);
     if (!process.env.PORT) {
-      live_message();
-    } else {
-      test_channel.send('Slacker-bot online.');
+    //   live_message();
+    // } else {
+      // test_channel.send('Slacker-bot online.');
       parrot.initialize_chain(guild);
       blaze_it();
       sleep_warning();
